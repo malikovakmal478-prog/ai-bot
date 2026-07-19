@@ -271,5 +271,5 @@ def run_keepalive_server():
 
 if __name__ == "__main__":
     import threading
-    threading.Thread(target=main, daemon=True).start()
-    run_keepalive_server()
+    threading.Thread(target=run_keepalive_server, daemon=True).start()
+    main()
