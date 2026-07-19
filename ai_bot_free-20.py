@@ -251,5 +251,25 @@ def main():
     print("AI bot ishga tushdi...")
     app.run_polling()
 
+
+# ---------------- RENDER "WEB SERVICE" UCHUN KICHIK SERVER ----------------
+# Render'ning bepul tarifi faqat ochiq PORT'ni kutadigan "Web Service"larni
+# qo'llab-quvvatlaydi. Shuning uchun botni fon oqimida ishga tushirib,
+# asosiy oqimda kichik Flask serverini ochamiz.
+def run_keepalive_server():
+    import os
+    from flask import Flask
+    web = Flask(__name__)
+
+    @web.route("/")
+    def home():
+        return "AI bot ishlayapti ✅"
+
+    port = int(os.environ.get("PORT", 10000))
+    web.run(host="0.0.0.0", port=port)
+
+
 if __name__ == "__main__":
-    main()
+    import threading
+    threading.Thread(target=main, daemon=True).start()
+    run_keepalive_server()
