@@ -1,5 +1,6 @@
 import base64
 import logging
+import time
 import requests
 from telegram import Update
 from telegram.ext import (
@@ -9,9 +10,9 @@ from telegram.ext import (
 
 logging.basicConfig(level=logging.INFO)
 
-BOT_TOKEN = "8793117472:AAHVJmXwVUlb8LaM24J4Ap2Ugl4REd7ow_U"          # @BotFather'dan
-OPENROUTER_API_KEY = "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"  # openrouter.ai/keys dan bepul olinadi
-GROQ_API_KEY = "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"        # console.groq.com dan bepul olinadi (ovozli xabarlar uchun)
+BOT_TOKEN = "8793117472:AAHVJmXwVUlb8LaM24J4Ap2Ugl4REd7ow_U"
+OPENROUTER_API_KEY = "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"
+GROQ_API_KEY = "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"
 
 # Bepul modellar ro'yxati - birinchisi band bo'lsa, navbatdagisi sinaladi
 FREE_MODELS = [
@@ -21,6 +22,7 @@ FREE_MODELS = [
     "mistralai/mistral-small-3.2-24b-instruct:free",
     "moonshotai/kimi-k2:free",
 ]
+
 # Rasm tushunadigan (vision) bepul modellar
 VISION_MODELS = [
     "google/gemma-4-31b-it:free",
@@ -32,11 +34,16 @@ SYSTEM_PROMPT = (
     "iliq va tabiiy suhbatlashasan. Javoblaring qisqa va tushunarli bo'lsin."
 )
 
-# Har bir foydalanuvchi uchun suhbat tarixi (oddiy, xotira bilan)
-user_history = {}
-MAX_HISTORY = 10  # necha xabar eslab qolinsin
+BLOCKED_WORDS = [
+    "nude", "naked", "porn", "porno", "sex", "sexy",
+    "erotic", "breast", "boobs", "bikini", "lingerie",
+    "xxx", "18+", "yalangoch", "yalang'och", "jinsiy"
+]
 
-import time
+# Har bir foydalanuvchi uchun suhbat tarixi
+user_history = {}
+MAX_HISTORY = 10
+
 
 def ask_ai(chat_id, user_text):
     history = user_history.get(chat_id, [])
@@ -45,7 +52,7 @@ def ask_ai(chat_id, user_text):
     ]
 
     for model in FREE_MODELS:
-        for attempt in range(2):  # har modelni 2 marta sinaymiz (rate-limit uchun)
+        for attempt in range(2):
             try:
                 response = requests.post(
                     url="https://openrouter.ai/api/v1/chat/completions",
@@ -53,10 +60,7 @@ def ask_ai(chat_id, user_text):
                         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                         "Content-Type": "application/json",
                     },
-                    json={
-                        "model": model,
-                        "messages": messages,
-                    },
+                    json={"model": model, "messages": messages},
                     timeout=30
                 )
                 data = response.json()
@@ -68,14 +72,12 @@ def ask_ai(chat_id, user_text):
                         wait = min(err.get("metadata", {}).get("retry_after_seconds", 6), 10)
                         time.sleep(wait)
                         continue
-                    break  # 404 va boshqa xatolar - darhol keyingi modelga o'tamiz
+                    break
 
                 reply = data["choices"][0]["message"]["content"]
-
                 history.append({"role": "user", "content": user_text})
                 history.append({"role": "assistant", "content": reply})
                 user_history[chat_id] = history[-MAX_HISTORY:]
-
                 return reply
             except Exception as e:
                 logging.warning(f"So'rov xatosi ({model}): {e}")
@@ -102,13 +104,10 @@ def ask_ai_about_image(image_bytes, caption):
                         "model": model,
                         "messages": [
                             {"role": "system", "content": SYSTEM_PROMPT},
-                            {
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": prompt_text},
-                                    {"type": "image_url", "image_url": {"url": data_uri}},
-                                ],
-                            },
+                            {"role": "user", "content": [
+                                {"type": "text", "text": prompt_text},
+                                {"type": "image_url", "image_url": {"url": data_uri}},
+                            ]},
                         ],
                     },
                     timeout=45
@@ -131,29 +130,8 @@ def ask_ai_about_image(image_bytes, caption):
 
     return "Kechirasiz, hozir rasmni tahlil qila olmadim. Birozdan keyin qayta urinib ko'ring 🙏"
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Salom! 👋 Men sizning AI yordamchingizman.\n\n"
-        "Menga istalgan savolingizni yozing, rasm yoki 🎙 ovozli xabar yuboring — tushunib javob beraman.\n\n"
-        "🎨 /rasm [tasvir] — rasm chizib beraman (masalan: /rasm kosmosdagi mushuk)\n"
-        "/reset — suhbat tarixini tozalash"
-    )
-
-async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    user_history.pop(chat_id, None)
-    await update.message.reply_text("Suhbat tarixi tozalandi ✅")
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    text = update.message.text
-
-    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-    reply = ask_ai(chat_id, text)
-    await update.message.reply_text(reply)
 
 def generate_image(prompt: str):
-    """Pollinations.ai orqali bepul, kalitsiz rasm generatsiya qiladi."""
     try:
         import urllib.parse
         encoded = urllib.parse.quote(prompt)
@@ -168,7 +146,6 @@ def generate_image(prompt: str):
 
 
 def transcribe_voice(audio_bytes):
-    """Groq Whisper orqali ovozni matnga o'giradi (bepul)."""
     try:
         response = requests.post(
             url="https://api.groq.com/openai/v1/audio/transcriptions",
@@ -187,14 +164,35 @@ def transcribe_voice(audio_bytes):
         return None
 
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Salom! 👋 Men sizning AI yordamchingizman.\n\n"
+        "Menga istalgan savolingizni yozing, rasm yoki 🎙 ovozli xabar yuboring — tushunib javob beraman.\n\n"
+        "🎨 /rasm [tasvir] — rasm chizib beraman (masalan: /rasm kosmosdagi mushuk)\n"
+        "/reset — suhbat tarixini tozalash"
+    )
+
+
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    user_history.pop(chat_id, None)
+    await update.message.reply_text("Suhbat tarixi tozalandi ✅")
+
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    text = update.message.text
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+    reply = ask_ai(chat_id, text)
+    await update.message.reply_text(reply)
+
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-
-    photo = update.message.photo[-1]  # eng katta o'lchamdagi versiya
+    photo = update.message.photo[-1]
     file = await context.bot.get_file(photo.file_id)
     image_bytes = await file.download_as_bytearray()
-
     caption = update.message.caption or ""
     reply = ask_ai_about_image(bytes(image_bytes), caption)
     await update.message.reply_text(reply)
@@ -208,12 +206,6 @@ async def rasm_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     prompt = " ".join(context.args)
-
-    BLOCKED_WORDS = [
-        "nude", "naked", "porn", "porno", "sex", "sexy",
-        "erotic", "breast", "boobs", "bikini", "lingerie",
-        "xxx", "18+", "yalangoch", "yalang'och", "jinsiy"
-    ]
 
     if any(word in prompt.lower() for word in BLOCKED_WORDS):
         await update.message.reply_text(
@@ -237,7 +229,6 @@ async def rasm_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-
     voice = update.message.voice or update.message.audio
     file = await context.bot.get_file(voice.file_id)
     audio_bytes = await file.download_as_bytearray()
@@ -252,6 +243,14 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    # Python 3.14 uchun: event loop'ni qo'lda yaratamiz
+    import asyncio
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -266,9 +265,6 @@ def main():
 
 
 # ---------------- RENDER "WEB SERVICE" UCHUN KICHIK SERVER ----------------
-# Render'ning bepul tarifi faqat ochiq PORT'ni kutadigan "Web Service"larni
-# qo'llab-quvvatlaydi. Shuning uchun botni fon oqimida ishga tushirib,
-# asosiy oqimda kichik Flask serverini ochamiz.
 def run_keepalive_server():
     import os
     from flask import Flask
