@@ -208,6 +208,19 @@ async def rasm_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     prompt = " ".join(context.args)
+
+    BLOCKED_WORDS = [
+        "nude", "naked", "porn", "porno", "sex", "sexy",
+        "erotic", "breast", "boobs", "bikini", "lingerie",
+        "xxx", "18+", "yalangoch", "yalang'och", "jinsiy"
+    ]
+
+    if any(word in prompt.lower() for word in BLOCKED_WORDS):
+        await update.message.reply_text(
+            "❌ Uzr, odobsiz yoki jinsiy mazmundagi rasmlarni yaratmayman."
+        )
+        return
+
     chat_id = update.effective_chat.id
     await context.bot.send_chat_action(chat_id=chat_id, action="upload_photo")
     wait_msg = await update.message.reply_text("🎨 Rasm chizilmoqda, biroz kuting...")
