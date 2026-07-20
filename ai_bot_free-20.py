@@ -15,12 +15,12 @@ GROQ_API_KEY = "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"       
 
 # Bepul modellar ro'yxati - birinchisi band bo'lsa, navbatdagisi sinaladi
 FREE_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "google/gemma-3-12b-it:free",
-    "openai/gpt-oss-120b:free",
-    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "deepseek/deepseek-chat-v3-0324:free",
+    "deepseek/deepseek-r1-0528:free",
+    "qwen/qwen3-32b:free",
+    "mistralai/mistral-small-3.2-24b-instruct:free",
+    "moonshotai/kimi-k2:free",
 ]
-
 # Rasm tushunadigan (vision) bepul modellar
 VISION_MODELS = [
     "google/gemma-4-31b-it:free",
