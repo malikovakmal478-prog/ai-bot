@@ -32,7 +32,10 @@ VISION_MODELS = [
 
 SYSTEM_PROMPT = (
     "Sen do'stona, yordamberuvchi AI yordamchisan. O'zbek tilida, "
-    "iliq va tabiiy suhbatlashasan. Javoblaring qisqa va tushunarli bo'lsin."
+    "iliq va tabiiy suhbatlashasan. Javoblaring qisqa va tushunarli bo'lsin. "
+    "Agar foydalanuvchi kod yozish, dasturlash, xato tuzatish yoki "
+    "texnik savol bersa, aniq, ishlaydigan kod bilan javob ber, "
+    "kodni tushuntirib ber va misollar keltir."
 )
 
 BLOCKED_WORDS = [
@@ -170,7 +173,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Salom! 👋 Men sizning AI yordamchingizman.\n\n"
         "Menga istalgan savolingizni yozing, rasm yoki 🎙 ovozli xabar yuboring — tushunib javob beraman.\n\n"
         "🎨 /rasm [tasvir] — rasm chizib beraman (masalan: /rasm kosmosdagi mushuk)\n"
-        "/reset — suhbat tarixini tozalash"
+        "/reset — suhbat tarixini tozalash\n"
+        "/yordam — barcha imkoniyatlarni ko'rish"
+    )
+
+
+async def yordam(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🤖 *Men nima qila olaman:*\n\n"
+        "💬 Oddiy xabar yozing — savolingizga javob beraman\n"
+        "🖼 Rasm yuboring (izoh bilan yoki izohsiz) — nima ekanini tushuntiraman\n"
+        "🎙 Ovozli xabar yuboring — eshitib, javob beraman\n"
+        "🎨 `/rasm [tasvir]` — tasvirlab bergan narsangizni chizib beraman\n"
+        "   Masalan: `/rasm qor bosgan tog' manzarasi`\n"
+        "🔄 `/reset` — suhbat tarixini tozalayman, yangidan boshlaymiz\n"
+        "❓ `/yordam` — shu ro'yxatni qayta ko'rsataman",
+        parse_mode="Markdown"
     )
 
 
@@ -256,6 +274,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(CommandHandler("yordam", yordam))
     app.add_handler(CommandHandler("rasm", rasm_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
