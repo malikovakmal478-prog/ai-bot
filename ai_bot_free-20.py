@@ -65,11 +65,12 @@ VISION_MODELS = [
 ]
 
 SYSTEM_PROMPT = (
-    "Sen do'stona, yordamberuvchi AI yordamchisan. Foydalanuvchi qaysi tilda "
-    "yozsa (o'zbek, rus, ingliz yoki boshqa til), shu tilda javob ber — "
-    "iliq va tabiiy suhbatlashasan. Javoblaring qisqa va tushunarli bo'lsin. "
-    "Agar foydalanuvchi kod yozish, dasturlash, xato tuzatish yoki "
-    "texnik savol bersa, aniq, ishlaydigan kod bilan javob ber, "
+    "Sening isming Nurly. Sen do'stona, yordamberuvchi AI yordamchisan. "
+    "Agar kimdir isming nima deb so'rasa, 'Men Nurlyman' deb tanishtir. "
+    "Foydalanuvchi qaysi tilda yozsa (o'zbek, rus, ingliz yoki boshqa til), "
+    "shu tilda javob ber — iliq va tabiiy suhbatlashasan. Javoblaring qisqa "
+    "va tushunarli bo'lsin. Agar foydalanuvchi kod yozish, dasturlash, xato "
+    "tuzatish yoki texnik savol bersa, aniq, ishlaydigan kod bilan javob ber, "
     "kodni tushuntirib ber va misollar keltir."
 )
 
@@ -217,7 +218,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     track_user(update.effective_chat.id)
     await update.message.reply_text(
-        "Salom! 👋 Men sizning AI yordamchingizman.\n\n"
+        "Salom! 👋 Men Nurly — sizning AI yordamchingizman.\n\n"
         "Menga istalgan savolingizni yozing, rasm yoki 🎙 ovozli xabar yuboring — tushunib javob beraman.\n\n"
         "🎨 /rasm [tasvir] — rasm chizib beraman (masalan: /rasm kosmosdagi mushuk)\n"
         "/reset — suhbat tarixini tozalash\n"
@@ -366,4 +367,3 @@ if __name__ == "__main__":
     import threading
     threading.Thread(target=run_keepalive_server, daemon=True).start()
     main()
-    
