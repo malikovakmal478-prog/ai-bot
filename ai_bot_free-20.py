@@ -16,11 +16,11 @@ GROQ_API_KEY = "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"
 
 # Bepul modellar ro'yxati - birinchisi band bo'lsa, navbatdagisi sinaladi
 FREE_MODELS = [
-    "deepseek/deepseek-chat-v3-0324:free",
-    "deepseek/deepseek-r1-0528:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "openai/gpt-oss-120b:free",
     "qwen/qwen3-32b:free",
-    "mistralai/mistral-small-3.2-24b-instruct:free",
-    "moonshotai/kimi-k2:free",
+    "google/gemma-3-12b-it:free",
+    "openrouter/free",  # OpenRouter'ning o'z avtomatik yo'naltiruvchisi - hech qachon "band" bo'lmaydi
 ]
 
 # Rasm tushunadigan (vision) bepul modellar
