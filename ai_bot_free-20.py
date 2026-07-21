@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 BOT_TOKEN = "8793117472:AAHVJmXwVUlb8LaM24J4Ap2Ugl4REd7ow_U"
 OPENROUTER_API_KEY = "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"
 GROQ_API_KEY = "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"
-ADMIN_CHAT_ID = None  # /myid orqali o'z ID'ingizni bilib, shu yerga son sifatida yozing
+ADMIN_CHAT_ID = 7849637859
 
 DB_PATH = "users.db"
 
