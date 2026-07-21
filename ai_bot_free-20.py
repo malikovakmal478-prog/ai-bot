@@ -1,6 +1,7 @@
 import base64
 import logging
 import time
+import sqlite3
 import requests
 from telegram import Update
 from telegram.ext import (
@@ -13,6 +14,39 @@ logging.basicConfig(level=logging.INFO)
 BOT_TOKEN = "8793117472:AAHVJmXwVUlb8LaM24J4Ap2Ugl4REd7ow_U"
 OPENROUTER_API_KEY = "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"
 GROQ_API_KEY = "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"
+ADMIN_CHAT_ID = None  # /7849637859
+
+DB_PATH = "users.db"
+
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            chat_id INTEGER PRIMARY KEY,
+            first_seen TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def track_user(chat_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO users (chat_id) VALUES (?)", (chat_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_user_count():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM users")
+    count = c.fetchone()[0]
+    conn.close()
+    return count
 
 # Bepul modellar ro'yxati - birinchisi band bo'lsa, navbatdagisi sinaladi
 FREE_MODELS = [
@@ -168,7 +202,19 @@ def transcribe_voice(audio_bytes):
         return None
 
 
+async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(f"Sizning chat ID'ingiz: `{update.effective_chat.id}`", parse_mode="Markdown")
+
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if ADMIN_CHAT_ID is None or update.effective_chat.id != ADMIN_CHAT_ID:
+        return  # admin bo'lmasa, hech narsa qaytarmaymiz
+    count = get_user_count()
+    await update.message.reply_text(f"📊 Botdan jami foydalanganlar soni: {count} kishi")
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    track_user(update.effective_chat.id)
     await update.message.reply_text(
         "Salom! 👋 Men sizning AI yordamchingizman.\n\n"
         "Menga istalgan savolingizni yozing, rasm yoki 🎙 ovozli xabar yuboring — tushunib javob beraman.\n\n"
@@ -176,6 +222,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/reset — suhbat tarixini tozalash\n"
         "/yordam — barcha imkoniyatlarni ko'rish"
     )
+
+
+async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(f"Sizning ID'ingiz: `{update.effective_chat.id}`", parse_mode="Markdown")
+
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if ADMIN_CHAT_ID is None or chat_id != ADMIN_CHAT_ID:
+        await update.message.reply_text("Bu buyruq faqat admin uchun 🔒")
+        return
+    count = get_user_count()
+    await update.message.reply_text(f"👥 Botdan jami foydalanganlar soni: {count}")
 
 
 async def yordam(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -200,6 +259,7 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    track_user(chat_id)
     text = update.message.text
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
     reply = ask_ai(chat_id, text)
@@ -270,11 +330,14 @@ def main():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
+    init_db()
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("yordam", yordam))
+    app.add_handler(CommandHandler("myid", myid))
+    app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("rasm", rasm_cmd))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
@@ -302,3 +365,4 @@ if __name__ == "__main__":
     import threading
     threading.Thread(target=run_keepalive_server, daemon=True).start()
     main()
+    
