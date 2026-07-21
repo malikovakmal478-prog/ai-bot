@@ -20,7 +20,8 @@ FREE_MODELS = [
     "openai/gpt-oss-120b:free",
     "qwen/qwen3-32b:free",
     "google/gemma-3-12b-it:free",
-    "openrouter/free",  # OpenRouter'ning o'z avtomatik yo'naltiruvchisi - hech qachon "band" bo'lmaydi
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "meta-llama/llama-4-maverick:free",
 ]
 
 # Rasm tushunadigan (vision) bepul modellar
