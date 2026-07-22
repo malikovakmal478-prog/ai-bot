@@ -48,19 +48,17 @@ def get_user_count():
     conn.close()
     return count
 
-# Bepul modellar ro'yxati - birinchisi band bo'lsa, navbatdagisi sinaladi
+# Bepul modellar ro'yxati (2026-07-22 holatiga ko'ra tekshirilgan, OpenRouter API'dan)
+# Eskilari (llama-3.3, gpt-oss-120b, qwen3-32b, gemma-3-12b) pullikka o'tgan edi -> 404
 FREE_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "openai/gpt-oss-120b:free",
-    "qwen/qwen3-32b:free",
-    "google/gemma-3-12b-it:free",
     "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "meta-llama/llama-4-maverick:free",
+    "poolside/laguna-m.1:free",
+    "cohere/north-mini-code:free",
+    "poolside/laguna-xs-2.1:free",
 ]
 
-# Rasm tushunadigan (vision) bepul modellar
+# Rasm tushunadigan (vision) bepul model
 VISION_MODELS = [
-    "google/gemma-4-31b-it:free",
     "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
 ]
 
@@ -204,17 +202,6 @@ def transcribe_voice(audio_bytes):
         return None
 
 
-async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Sizning chat ID'ingiz: `{update.effective_chat.id}`", parse_mode="Markdown")
-
-
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if ADMIN_CHAT_ID is None or update.effective_chat.id != ADMIN_CHAT_ID:
-        return  # admin bo'lmasa, hech narsa qaytarmaymiz
-    count = get_user_count()
-    await update.message.reply_text(f"📊 Botdan jami foydalanganlar soni: {count} kishi")
-
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     track_user(update.effective_chat.id)
     await update.message.reply_text(
@@ -324,7 +311,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    # Python 3.14 uchun: event loop'ni qo'lda yaratamiz
     import asyncio
     try:
         asyncio.get_event_loop()
@@ -367,3 +353,4 @@ if __name__ == "__main__":
     import threading
     threading.Thread(target=run_keepalive_server, daemon=True).start()
     main()
+           
