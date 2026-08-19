@@ -11,7 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 # ==========================================
 # 1. TIZIM SOZLAMALARI VA TARIFLAR
 # ==========================================
-MAKER_BOT_TOKEN = "8708370464:AAEohNE68EdRuzn8H6bN0oZAD224jAMajoM"
+MAKER_BOT_TOKEN = "8708370464:AAFOqPf4iKJkvY17ov8QxidZwS4fhBHif0s"
 ADMIN_ID = 7849637859  # Asosiy Admin Telegram IDsi
 
 # Moliya va Shartlar
