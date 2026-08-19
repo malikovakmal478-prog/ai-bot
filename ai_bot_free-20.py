@@ -9,272 +9,262 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 # ==========================================
-# 1. TIZIM SOZLAMALARI VA TARIFLAR
+# 1. SOZLAMALAR VA BAZA
 # ==========================================
-MAKER_BOT_TOKEN = "8708370464:AAFOqPf4iKJkvY17ov8QxidZwS4fhBHif0s"
-ADMIN_ID = 7849637859  # Asosiy Admin Telegram IDsi
+MAKER_BOT_TOKEN = "8708370464:AAEMJn5gULP7Q-suO1_7PUdz3-glZsaOCgc"  # BotFather'dan olingan asosiy token
+ADMIN_ID = 7849637859                           # Admin Telegram ID
 
-# Moliya va Shartlar
-PRICE_INITIAL = 35000   # 35,000 so'm (dastlabki 17 kun)
-PRICE_RENEWAL = 11000   # 11,000 so'm (uzaytirish)
-DURATION_DAYS = 17      # 17 kun faollik
+PRICE_INITIAL = 35000.0   # Bot yaratish (17 kun)
+PRICE_RENEWAL = 11000.0   # Uzaytirish
+DURATION_DAYS = 17
 
-# Referal va Almos Tizimi
-DEFAULT_REF_DIAMONDS = 5   # Har bir referal uchun 5 almos
-DEFAULT_MIN_WITHDRAW = 210  # Minimal yechish: 210 almos
+CARD_NUMBER = "5440 8103 1990 4917"  # To'lov uchun karta raqamingiz
+CARD_HOLDER = "g/n"
 
-# Xotira Bazasi
 DB = {
-    "users": {},        # {user_id: {"balance": 35000, "diamonds": 0, "ref_by": None}}
-    "bots": {},         # {bot_token: {"owner_id": 123, "type": 1, "expires": "..."}, "channels": []}
-    "movies": {},       # {"30224030": {"title": "Kino nomi", "file_id": "ABC123xyz"}}
-    "withdraws": []     # Yechib olish so'rovnomalari
+    "users": {},        # {user_id: {"balance": 0.0, "diamonds": 0, "ref_by": None}}
+    "bots": {},         # {token: {"owner": id, "type": 1, "expires": datetime, "channels": []}}
+    "movies": {},       # {code: {"title": str, "file_id": str}}
+    "payments": {}      # {pay_id: {"user_id": id, "amount": int, "status": "pending"}}
 }
+
+# Yaratilgan barcha kichik botlarni saqlash va boshqarish uchun
+RUNNING_BOTS = {}
 
 bot = Bot(token=MAKER_BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 # FSM Holatlari
 class BotCreation(StatesGroup):
+    waiting_for_type = State()
     waiting_for_token = State()
+
+class Deposit(StatesGroup):
+    waiting_for_amount = State()
+    waiting_for_receipt = State()
 
 class AddMovie(StatesGroup):
     waiting_for_code = State()
     waiting_for_file = State()
 
 # ==========================================
-# 2. ASOSIY MAKER BOT VA REFERAL TIZIMI
+# 2. DYNAMIC BOT ENGINE (Yaratilgan botlarni fonda yurgizish)
+# ==========================================
+async def start_sub_bot(token: str, bot_type: int):
+    """Foydalanuvchi yaratgan botni fonda alohida ishga tushirish engine'i"""
+    try:
+        sub_bot = Bot(token=token)
+        sub_dp = Dispatcher()
+
+        if bot_type == 1: # Kino Bot
+            @sub_dp.message(Command("start"))
+            async def sub_start(msg: types.Message):
+                await msg.answer("🎬 **Kino Botga xush kelibsiz!**\nKino kodini kiriting (Masalan: 30224030):")
+
+            @sub_dp.message(F.text)
+            async def sub_search(msg: types.Message):
+                code = msg.text.strip()
+                if code in DB["movies"]:
+                    m = DB["movies"][code]
+                    await msg.answer_video(video=m["file_id"], caption=f"🎥 **{m['title']}**")
+                else:
+                    await msg.answer(f"❌ '{code}' kodli kino topilmadi.")
+
+        else: # Boshqa bot turlari uchun unversal menyu
+            @sub_dp.message(Command("start"))
+            async def sub_gen(msg: types.Message):
+                await msg.answer(f"🤖 **Bot №{bot_type} muvaffaqiyatli ishlamoqda!**\nBarcha tizimlar aktiv statusda.")
+
+        RUNNING_BOTS[token] = sub_bot
+        asyncio.create_task(sub_dp.start_polling(sub_bot))
+    except Exception as e:
+        logging.error(f"Botni ishga tushirishda xatolik ({token}): {e}")
+
+# ==========================================
+# 3. ASOSIY MAKER BOT LOGIKASI
 # ==========================================
 @dp.message(Command("start"))
 async def cmd_start(msg: types.Message, command: CommandObject = None):
     user_id = msg.from_user.id
-    
-    # Referal hisoblash
     if user_id not in DB["users"]:
-        ref_id = None
-        if command and command.args and command.args.isdigit():
-            possible_ref = int(command.args)
-            if possible_ref != user_id and possible_ref in DB["users"]:
-                ref_id = possible_ref
-                DB["users"][ref_id]["diamonds"] += DEFAULT_REF_DIAMONDS
-                
-        # Dastlab test uchun 35,000 so'm balans beriladi
-        DB["users"][user_id] = {"balance": 35000.0, "diamonds": 0, "ref_by": ref_id}
+        ref_id = int(command.args) if (command and command.args and command.args.isdigit() and int(command.args) != user_id) else None
+        if ref_id and ref_id in DB["users"]:
+            DB["users"][ref_id]["diamonds"] += 5
+        DB["users"][user_id] = {"balance": 0.0, "diamonds": 0, "ref_by": ref_id}
+
+    bal = DB["users"][user_id]["balance"]
+    diamonds = DB["users"][user_id]["diamonds"]
 
     text = (
-        "<b>🌍 BUTUN DUNYODA YAGONA — MAKER BOT PLATFORMASI</b>\n\n"
-        "Yangi bot yaratish: <b>35,000 so'm</b> (17 kunlik faoliyat).\n"
-        "Uzaytirish to'lovi: Har 17 kunda <b>11,000 so'm</b>.\n\n"
-        "💎 <b>Referal Tizimi:</b>\n"
-        "• Har bir chaqirilgan do'st uchun: <b>5 Almos</b>\n"
-        "• Minimal yechib olish: <b>210 Almos</b>\n\n"
+        "<b>🌍 MAKER BOT — PROFESSIONAL BOT YARATISH PLATFORMASI</b>\n\n"
+        f"💳 Balansingiz: <b>{bal:,.0f} so'm</b>\n"
+        f"💎 Almoslaringiz: <b>{diamonds} ta</b>\n\n"
+        "• Yangi bot yaratish: <b>35,000 so'm</b> (17 kun)\n"
+        "• Botni uzaytirish: <b>11,000 so'm</b> / 17 kun\n\n"
         "Kerakli bo'limni tanlang:"
     )
-    
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🤖 Yangi Bot Yaratish (35,000 UZS)", callback_data="create_bot")],
-        [InlineKeyboardButton(text="📚 20 ta Bot Katalogi", callback_data="catalog")],
-        [InlineKeyboardButton(text="💎 Referal va Almoslarim", callback_data="ref_info")],
+        [InlineKeyboardButton(text="🤖 Yangi Bot Yaratish", callback_data="create_bot"), InlineKeyboardButton(text="💳 Balans To'ldirish", callback_data="deposit")],
+        [InlineKeyboardButton(text="📚 20 ta Bot Katalogi", callback_data="catalog"), InlineKeyboardButton(text="💎 Referal Tizimi", callback_data="ref_info")],
         [InlineKeyboardButton(text="⚙️ Admin Panel", callback_data="admin_panel")]
     ])
     await msg.answer(text, parse_mode="HTML", reply_markup=kb)
 
-@dp.callback_query(F.data == "catalog")
-async def show_catalog(call: types.CallbackQuery):
-    text = (
-        "<b>📋 YARATISH MUMKIN BO'LGAN 20 TA BOT KATALOGI:</b>\n\n"
-        "1. 🎬 Kino Bot (Kodli va obunali - @30224030 analogi)\n"
-        "2. 🎁 Referal / Konkurs Bot\n"
-        "3. 🛒 E-Commerce Do'kon Bot\n"
-        "4. 💬 Anonim Chat Bot\n"
-        "5. 🧠 AI Sun'iy Intellekt Bot\n"
-        "6. 📥 Downloader Bot (Insta, TikTok, YT)\n"
-        "7. 📝 Test / Viktorina Bot\n"
-        "8. 🛡 VPN Sotuvchi Bot\n"
-        "9. 🎵 Musiqa Qidiruv (Shazam) Bot\n"
-        "10. 🔱 Valyuta Konverter Bot\n"
-        "11. 📩 Temp SMS / Mail Bot\n"
-        "12. 📄 PDF Konverter Bot\n"
-        "13. ✍️ Auto-Format Text Bot\n"
-        "14. 💼 Portfolio / Rezyume Bot\n"
-        "15. 📈 Crypto Price Alert Bot\n"
-        "16. 🔮 Horoscope / Bashorat Bot\n"
-        "17. 📞 Feedback / Murojaat Bot\n"
-        "18. 🎮 Mini Game Bot\n"
-        "19. 🔗 URL Shortener Bot\n"
-        "20. 🛠 Universal Constructor Bot"
-    )
-    await call.message.edit_text(text, parse_mode="HTML")
+# --- BALANS TO'LDIRISH (KARTA ORQALI) ---
+@dp.callback_query(F.data == "deposit")
+async def deposit_start(call: types.CallbackQuery, state: FSMContext):
+    await state.set_state(Deposit.waiting_for_amount)
+    await call.message.answer("💳 Qancha summap (so'mda) to'lamoqchisiz? (Masalan: 35000):")
 
-@dp.callback_query(F.data == "ref_info")
-async def ref_info(call: types.CallbackQuery):
-    user_id = call.from_user.id
-    diamonds = DB["users"][user_id]["diamonds"]
-    me = await bot.get_me()
-    ref_link = f"https://t.me/{me.username}?start={user_id}"
-    
-    text = (
-        f"💎 <b>Sizning Almoslaringiz:</b> {diamonds} ta\n"
-        f"🔗 <b>Referal havolangiz:</b>\n<code>{ref_link}</code>\n\n"
-        f"• 1 ta referal uchun = 5 almos.\n"
-        f"• Minimal yechib olish = 210 almos."
-    )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💸 Almoslarni Yechib Olish", callback_data="withdraw_diamonds")]
-    ])
-    await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
-
-@dp.callback_query(F.data == "withdraw_diamonds")
-async def withdraw(call: types.CallbackQuery):
-    user_id = call.from_user.id
-    diamonds = DB["users"][user_id]["diamonds"]
-    if diamonds < DEFAULT_MIN_WITHDRAW:
-        await call.answer(f"❌ Yechish uchun kamida {DEFAULT_MIN_WITHDRAW} almos kerak! Sizda: {diamonds} ta.", show_alert=True)
-    else:
-        DB["users"][user_id]["diamonds"] -= DEFAULT_MIN_WITHDRAW
-        DB["withdraws"].append({"user_id": user_id, "amount": DEFAULT_MIN_WITHDRAW})
-        await call.answer("✅ Yechib olish so'rovi adminga yuborildi!", show_alert=True)
-
-@dp.callback_query(F.data == "create_bot")
-async def process_create_bot(call: types.CallbackQuery, state: FSMContext):
-    user_id = call.from_user.id
-    user_bal = DB["users"][user_id]["balance"]
-    
-    if user_bal < PRICE_INITIAL:
-        await call.message.answer(
-            f"❌ Balansingizda yetarli mablag' yo'q!\n"
-            f"Bot yaratish narxi: <b>35,000 so'm</b> (17 kun uchun).\n"
-            f"Sizning balansingiz: <b>{user_bal} so'm</b>.",
-            parse_mode="HTML"
-        )
+@dp.message(Deposit.waiting_for_amount)
+async def deposit_amount(msg: types.Message, state: FSMContext):
+    if not msg.text.isdigit():
+        await msg.answer("❌ Fikr faqat raqamlardan iborat bo'lishi kerak!")
         return
+    
+    amount = int(msg.text)
+    await state.update_data(amount=amount)
+    await state.set_state(Deposit.waiting_for_receipt)
 
-    await state.set_state(BotCreation.waiting_for_token)
-    await call.message.answer("🤖 BotFather'dan olingan Bot Tokenini yuboring:")
+    text = (
+        f"📥 <b>To'lov miqdori:</b> {amount:,.0f} so'm\n\n"
+        f"Quyidagi kartaga o'tkazmani amalga oshiring:\n"
+        f"💳 Karta: <code>{CARD_NUMBER}</code>\n"
+        f"👤 Egasining ismi: <b>{CARD_HOLDER}</b>\n\n"
+        "To'lovni amalga oshirgach, <b>chek rasmini (screenshot)</b> ushbu chatga yuboring:"
+    )
+    await msg.answer(text, parse_mode="HTML")
 
-@dp.message(BotCreation.waiting_for_token)
-async def receive_bot_token(msg: types.Message, state: FSMContext):
-    token = msg.text.strip()
+@dp.message(Deposit.waiting_for_receipt, F.photo)
+async def deposit_receipt(msg: types.Message, state: FSMContext):
+    data = await state.get_data()
+    amount = data["amount"]
     user_id = msg.from_user.id
+    photo_id = msg.photo[-1].file_id
+
+    # Admin tasdiqlashiga yuborish
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"app_pay_{user_id}_{amount}"),
+            InlineKeyboardButton(text="❌ Rad etish", callback_data=f"rej_pay_{user_id}")
+        ]
+    ])
     
-    DB["users"][user_id]["balance"] -= PRICE_INITIAL
-    expires = datetime.now() + timedelta(days=DURATION_DAYS)
-    
-    DB["bots"][token] = {
-        "owner_id": user_id,
-        "type": 1,  # Kino Bot
-        "expires": expires.strftime("%Y-%m-%d %H:%M"),
-        "channels": []
-    }
+    await bot.send_photo(
+        chat_id=ADMIN_ID,
+        photo=photo_id,
+        caption=f"💸 <b>Yangi To'lov So'rovi!</b>\n\nFoydalanuvchi: ID {user_id}\nSumma: <b>{amount:,.0f} so'm</b>",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
     
     await state.clear()
+    await msg.answer("⏳ Chek adminga yuborildi! Tasdiqlangach, balansingizga pul qo'shiladi.")
+
+# --- BOT YARATISH ---
+@dp.callback_query(F.data == "create_bot")
+async def create_bot_start(call: types.CallbackQuery, state: FSMContext):
+    user_id = call.from_user.id
+    if DB["users"][user_id]["balance"] < PRICE_INITIAL:
+        await call.answer(f"❌ Balans yetarli emas! Bot yaratish: {PRICE_INITIAL:,.0f} so'm.", show_alert=True)
+        return
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎬 1. Kino Bot", callback_data="select_type_1")],
+        [InlineKeyboardButton(text="🎁 2. Referal Bot", callback_data="select_type_2")],
+        [InlineKeyboardButton(text="💬 3. Anonim Chat Bot", callback_data="select_type_3")]
+    ])
+    await call.message.answer("🤖 Qaysi turdagi botni yaratmoqchisiz?", reply_markup=kb)
+
+@dp.callback_query(F.data.startswith("select_type_"))
+async def select_bot_type(call: types.CallbackQuery, state: FSMContext):
+    b_type = int(call.data.split("_")[-1])
+    await state.update_data(b_type=b_type)
+    await state.set_state(BotCreation.waiting_for_token)
+    await call.message.answer("🔑 BotFather'dan olingan <b>Bot Tokenini</b> yuboring:", parse_mode="HTML")
+
+@dp.message(BotCreation.waiting_for_token)
+async def receive_token(msg: types.Message, state: FSMContext):
+    token = msg.text.strip()
+    user_id = msg.from_user.id
+    data = await state.get_data()
+    b_type = data["b_type"]
+
+    # Balansdan ayirish
+    DB["users"][user_id]["balance"] -= PRICE_INITIAL
+    expires = datetime.now() + timedelta(days=DURATION_DAYS)
+
+    DB["bots"][token] = {
+        "owner": user_id,
+        "type": b_type,
+        "expires": expires.strftime("%Y-%m-%d %H:%M")
+    }
+
+    # Yangi botni fonda ishga tushirish!
+    await start_sub_bot(token, b_type)
+
+    await state.clear()
     await msg.answer(
-        f"✅ Bot muvaffaqiyatli yaratildi!\n"
-        f"📅 Faoliyat muddati: <b>17 kun</b> (Tugash vaqti: {expires.strftime('%Y-%m-%d')})\n"
-        f"🔄 Keyingi uzaytirish: <b>11,000 so'm</b>.",
+        f"✅ <b>Botingiz muvaffaqiyatli ishga tushdi!</b>\n\n"
+        f"📅 Faoliyat muddati: <b>17 kun</b> ({expires.strftime('%Y-%m-%d')})\n"
+        f"🤖 Botingizga kirib /start bosing!",
         parse_mode="HTML"
     )
 
-# ==========================================
-# 3. YARATILGAN BOTLAR UCHUN UNIVERSAL ENGINE
-# ==========================================
-class BotEngine:
-    def __init__(self, token: str, bot_type: int):
-        self.bot = Bot(token=token)
-        self.dp = Dispatcher()
-        self.bot_type = bot_type
-        self.token = token
-        self.register_handlers()
+# --- ADMIN TO'LOV TASDIQLASH ---
+@dp.callback_query(F.data.startswith("app_pay_"))
+async def approve_payment(call: types.CallbackQuery):
+    parts = call.data.split("_")
+    target_id, amount = int(parts[2]), float(parts[3])
 
-    async def check_sub(self, user_id: int) -> bool:
-        channels = DB["bots"].get(self.token, {}).get("channels", [])
-        for ch in channels:
-            try:
-                member = await self.bot.get_chat_member(chat_id=ch, user_id=user_id)
-                if member.status in ["left", "kicked"]:
-                    return False
-            except Exception:
-                pass
-        return True
+    DB["users"][target_id]["balance"] += amount
+    await call.message.edit_caption(caption=f"✅ To'lov tasdiqlandi! +{amount:,.0f} so'm qo'shildi.")
+    await bot.send_message(chat_id=target_id, text=f"🎉 <b>To'lovingiz tasdiqlandi!</b>\nBalansingizga <b>{amount:,.0f} so'm</b> qo'shildi.", parse_mode="HTML")
 
-    def register_handlers(self):
-        # 1-Kino Bot (@30224030 style)
-        if self.bot_type == 1:
-            @self.dp.message(Command("start"))
-            async def k_start(msg: types.Message):
-                await msg.answer("🎬 Kino kodi yoki nomini kiriting (Masalan: 30224030):")
+@dp.callback_query(F.data.startswith("rej_pay_"))
+async def reject_payment(call: types.CallbackQuery):
+    target_id = int(call.data.split("_")[2])
+    await call.message.edit_caption(caption="❌ To'lov rad etildi.")
+    await bot.send_message(chat_id=target_id, text="❌ Yuborgan chekingiz rad etildi.")
 
-            @self.dp.message(F.text)
-            async def k_search(msg: types.Message):
-                if not await self.check_sub(msg.from_user.id):
-                    await msg.answer("❌ Kinoni ko'rish uchun avval majburiy kanallarga obuna bo'ling!")
-                    return
-                code = msg.text.strip()
-                if code in DB["movies"]:
-                    movie = DB["movies"][code]
-                    await msg.answer_video(video=movie["file_id"], caption=f"🎥 {movie['title']}")
-                else:
-                    await msg.answer(f"❌ {code} kodli kino topilmadi.")
-
-        # Qolgan barcha bot turlari uchun umumiy ishchi javoblar
-        else:
-            @self.dp.message(Command("start"))
-            async def gen_start(msg: types.Message):
-                await msg.answer(f"🤖 Bot №{self.bot_type} faol holatda! Barcha funksiyalar sozlangan.")
-
-    async def start(self):
-        await self.dp.start_polling(self.bot)
-
-# ==========================================
-# 4. ADMIN PANEL VA KINO KOD QO'SHISH
-# ==========================================
+# --- KINO KODLARI ADMIN PANEL ---
 @dp.callback_query(F.data == "admin_panel")
-async def admin_panel_handler(call: types.CallbackQuery):
-    user_id = call.from_user.id
-    if user_id != ADMIN_ID:
-        await call.answer("❌ Bu bo'lim faqat bosh admin uchun!", show_alert=True)
+async def admin_panel(call: types.CallbackQuery):
+    if call.from_user.id != ADMIN_ID:
+        await call.answer("❌ Faqat admin kirishi mumkin!", show_alert=True)
         return
-
-    text = (
-        "<b>⚙️ MAKER BOT ADMIN PANELI</b>\n\n"
-        f"• Jami foydalanuvchilar: {len(DB['users'])}\n"
-        f"• Yaratilgan botlar: {len(DB['bots'])}\n"
-        f"• Bazadagi kinolar: {len(DB['movies'])}"
-    )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎬 Kinoga Kod va Video Qo'shish", callback_data="add_movie")]
     ])
-    await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    await call.message.answer("⚙️ <b>Admin Panel:</b>", parse_mode="HTML", reply_markup=kb)
 
 @dp.callback_query(F.data == "add_movie")
-async def add_movie_start(call: types.CallbackQuery, state: FSMContext):
+async def add_movie_code(call: types.CallbackQuery, state: FSMContext):
     await state.set_state(AddMovie.waiting_for_code)
-    await call.message.answer("🎬 Kinoga kod qo'ying (Masalan: 30224030):")
+    await call.message.answer("🎬 Kino kodi (Masalan: 30224030):")
 
 @dp.message(AddMovie.waiting_for_code)
-async def add_movie_code(msg: types.Message, state: FSMContext):
+async def movie_code_received(msg: types.Message, state: FSMContext):
     await state.update_data(code=msg.text.strip())
     await state.set_state(AddMovie.waiting_for_file)
-    await msg.answer("🎥 Endi ushbu kodga tegishli video faylini yuboring:")
+    await msg.answer("🎥 Endi kodingiz uchun Video faylini yuboring:")
 
 @dp.message(AddMovie.waiting_for_file, F.video)
-async def add_movie_file(msg: types.Message, state: FSMContext):
+async def movie_file_received(msg: types.Message, state: FSMContext):
     data = await state.get_data()
     code = data["code"]
-    file_id = msg.video.file_id
-    caption = msg.caption or f"Kino {code}"
-
-    DB["movies"][code] = {"title": caption, "file_id": file_id}
+    DB["movies"][code] = {"title": msg.caption or f"Kino {code}", "file_id": msg.video.file_id}
     await state.clear()
-    await msg.answer(f"✅ Kino muvaffaqiyatli saqlandi!\nKod: <b>{code}</b>", parse_mode="HTML")
+    await msg.answer(f"✅ Kino saqlandi! Kod: <b>{code}</b>", parse_mode="HTML")
 
 # ==========================================
-# 5. ISHGA TUSHIRISH
+# 4. ISHGA TUSHIRISH
 # ==========================================
 async def main():
-    print("Maker Bot Platformasi muvaffaqiyatli ishga tushdi...")
+    logging.basicConfig(level=logging.INFO)
+    print("Maker Bot va Sub-botlar Tizimi Ishga Tushdi...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
