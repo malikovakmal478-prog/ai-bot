@@ -1,356 +1,322 @@
-import base64
+import asyncio
 import logging
-import time
-import sqlite3
-import requests
-from telegram import Update
-from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    ContextTypes, filters
+import json
+from datetime import datetime, timedelta
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command, CommandObject
+from aiogram.types import (
+    InlineKeyboardMarkup, InlineKeyboardButton, 
+    ReplyKeyboardMarkup, KeyboardButton
 )
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 
-logging.basicConfig(level=logging.INFO)
+# ==========================================
+# 1. TIZIM SOZLAMALARI VA TARIFLAR
+# ==========================================
+MAKER_BOT_TOKEN = "8708370464:AAEohNE68EdRuzn8H6bN0oZAD224jAMajoM"
+ADMIN_ID = 7849637859  # Asosiy Admin Telegram IDsi
 
-BOT_TOKEN = "8793117472:AAHVJmXwVUlb8LaM24J4Ap2Ugl4REd7ow_U"
-OPENROUTER_API_KEY = "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"
-GROQ_API_KEY = "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"
-ADMIN_CHAT_ID = 7849637859
+# Tariflar va Shartlar
+PRICE_INITIAL = 35000   # 35,000 UZS (17 kun)
+PRICE_RENEWAL = 11000   # 11,000 UZS (17 kun uzaytirish)
+DURATION_DAYS = 17      # 17 kun faollik
 
-DB_PATH = "users.db"
+# Referal va Almos
+DEFAULT_REF_DIAMONDS = 5   # Har bir referal uchun 5 almos
+DEFAULT_MIN_WITHDRAW = 210  # Minimal yechish: 210 almos
 
+# Xotira bazasi (Production uchun PostgreSQL / SQLAlchemy ishlatiladi)
+DB = {
+    "users": {},        # {user_id: {"balance": 0, "diamonds": 0, "ref_by": None}}
+    "bots": {},         # {bot_token: {"owner_id": 123, "type": 1, "expires": "..."}, "channels": [], "buttons": []}
+    "movies": {},       # {"30224030": {"title": "Kino nomi", "file_id": "ABC123xyz"}}
+    "withdraws": []     # Yechib olish so'rovlari
+}
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            chat_id INTEGER PRIMARY KEY,
-            first_seen TEXT DEFAULT (datetime('now','localtime'))
+bot = Bot(token=MAKER_BOT_TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
+
+# FSM Holatlari
+class BotCreation(StatesGroup):
+    waiting_for_token = State()
+
+class AddMovie(StatesGroup):
+    waiting_for_code = State()
+    waiting_for_file = State()
+
+# ==========================================
+# 2. MAKER BOT - ASOSIY PANEL VA BOT YARATISH
+# ==========================================
+@dp.message(Command("start"))
+async def cmd_start(msg: types.Message, command: CommandObject = None):
+    user_id = msg.from_user.id
+    
+    # Referal tizimi
+    if user_id not in DB["users"]:
+        ref_id = None
+        if command and command.args and command.args.isdigit():
+            possible_ref = int(command.args)
+            if possible_ref != user_id and possible_ref in DB["users"]:
+                ref_id = possible_ref
+                DB["users"][ref_id]["diamonds"] += DEFAULT_REF_DIAMONDS
+                
+        DB["users"][user_id] = {"balance": 0.0, "diamonds": 0, "ref_by": ref_id}
+
+    text = (
+        "<b>🌍 BUTUN DUNYODA YAGONA — MAKER BOT PLATFORMASI</b>\n\n"
+        "Yangi bot yaratish: <b>35,000 so'm</b> (17 kunlik faoliyat).\n"
+        "Uzaytirish to'lovi: Har 17 kunda <b>11,000 so'm</b>.\n\n"
+        "💎 <b>Referal Tizimi:</b>\n"
+        "• Har bir chaqirilgan do'st uchun: <b>5 Almos</b>\n"
+        "• Minimal yechib olish: <b>210 Almos</b>\n\n"
+        "Kerakli bo'limni tanlang:"
+    )
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🤖 Yangi Bot Yaratish (35,000 UZS)", callback_data="create_bot")],
+        [InlineKeyboardButton(text="📚 20 ta Bot Katalogi", callback_data="catalog")],
+        [InlineKeyboardButton(text="💎 Referal va Almoslarim", callback_data="ref_info")],
+        [InlineKeyboardButton(text="⚙️ Admin Panel", callback_data="admin_panel")]
+    ])
+    await msg.answer(text, parse_mode="HTML", reply_markup=kb)
+
+@dp.callback_query(F.data == "catalog")
+async def show_catalog(call: types.CallbackQuery):
+    text = (
+        "<b>📋 YARATISH MUMKIN BO'LGAN 20 TA BOT:</b>\n\n"
+        "1. 🎬 Kino Bot (Kodli va obunali - @30224030 analogi)\n"
+        "2. 🎁 Referal / Konkurs Bot\n"
+        "3. 🛒 E-Commerce Do'kon Bot\n"
+        "4. 💬 Anonim Chat Bot\n"
+        "5. 🧠 AI Sun'iy Intellekt Bot\n"
+        "6. 📥 Downloader Bot (Insta, TikTok, YT)\n"
+        "7. 📝 Test / Viktorina Bot\n"
+        "8. 🛡 VPN Sotuvchi Bot\n"
+        "9. 🎵 Musiqa Qidiruv (Shazam) Bot\n"
+        "10. 🔱 Valyuta Konverter Bot\n"
+        "11. 📩 Temp SMS / Mail Bot\n"
+        "12. 📄 PDF Konverter Bot\n"
+        "13. ✍️ Auto-Format Text Bot\n"
+        "14. 💼 Portfolio / Rezyume Bot\n"
+        "15. 📈 Crypto Price Alert Bot\n"
+        "16. 🔮 Horoscope / Bashorat Bot\n"
+        "17. 📞 Feedback / Murojaat Bot\n"
+        "18. 🎮 Mini Game Bot\n"
+        "19. 🔗 URL Shortener Bot\n"
+        "20. 🛠 Universal Constructor Bot"
+    )
+    await call.message.edit_text(text, parse_mode="HTML")
+
+@dp.callback_query(F.data == "ref_info")
+async def ref_info(call: types.CallbackQuery):
+    user_id = call.from_user.id
+    diamonds = DB["users"][user_id]["diamonds"]
+    me = await bot.get_me()
+    ref_link = f"https://t.me/{me.username}?start={user_id}"
+    
+    text = (
+        f"💎 <b>Sizning Almoslaringiz:</b> {diamonds} ta\n"
+        f"🔗 <b>Referal havolangiz:</b>\n<code>{ref_link}</code>\n\n"
+        f"• 1 ta referal uchun = 5 almos.\n"
+        f"• Minimal yechib olish = 210 almos."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💸 Almoslarni Yechib Olish", callback_data="withdraw_diamonds")]
+    ])
+    await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+
+@dp.callback_query(F.data == "withdraw_diamonds")
+async def withdraw(call: types.CallbackQuery):
+    user_id = call.from_user.id
+    diamonds = DB["users"][user_id]["diamonds"]
+    if diamonds < DEFAULT_MIN_WITHDRAW:
+        await call.answer(f"❌ Yechish uchun kamida {DEFAULT_MIN_WITHDRAW} almos kerak! Sizda: {diamonds} ta.", show_alert=True)
+    else:
+        DB["users"][user_id]["diamonds"] -= DEFAULT_MIN_WITHDRAW
+        DB["withdraws"].append({"user_id": user_id, "amount": DEFAULT_MIN_WITHDRAW})
+        await call.answer("✅ Yechib olish so'rovi adminga yuborildi!", show_alert=True)
+
+@dp.callback_query(F.data == "create_bot")
+async def process_create_bot(call: types.CallbackQuery, state: FSMContext):
+    user_id = call.from_user.id
+    user_bal = DB["users"][user_id]["balance"]
+    
+    if user_bal < PRICE_INITIAL:
+        await call.message.answer(
+            f"❌ Balansingizda yetarli mablag' yo'q!\n"
+            f"Bot yaratish narxi: <b>35,000 so'm</b> (17 kun uchun).\n"
+            f"Sizning balansingiz: <b>{user_bal} so'm</b>.",
+            parse_mode="HTML"
         )
-    """)
-    conn.commit()
-    conn.close()
+        return
 
+    await state.set_state(BotCreation.waiting_for_token)
+    await call.message.answer("🤖 BotFather'dan olingan Bot Tokenini yuboring:")
 
-def track_user(chat_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO users (chat_id) VALUES (?)", (chat_id,))
-    conn.commit()
-    conn.close()
-
-
-def get_user_count():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM users")
-    count = c.fetchone()[0]
-    conn.close()
-    return count
-
-# Bepul modellar ro'yxati (2026-07-22 holatiga ko'ra tekshirilgan, OpenRouter API'dan)
-# Eskilari (llama-3.3, gpt-oss-120b, qwen3-32b, gemma-3-12b) pullikka o'tgan edi -> 404
-FREE_MODELS = [
-    "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "poolside/laguna-m.1:free",
-    "cohere/north-mini-code:free",
-    "poolside/laguna-xs-2.1:free",
-]
-
-# Rasm tushunadigan (vision) bepul model
-VISION_MODELS = [
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-]
-
-SYSTEM_PROMPT = (
-    "Sening isming Nurly. Sen do'stona, yordamberuvchi AI yordamchisan. "
-    "Agar kimdir isming nima deb so'rasa, 'Men Nurlyman' deb tanishtir. "
-    "Foydalanuvchi qaysi tilda yozsa (o'zbek, rus, ingliz yoki boshqa til), "
-    "shu tilda javob ber — iliq va tabiiy suhbatlashasan. Javoblaring qisqa "
-    "va tushunarli bo'lsin. Agar foydalanuvchi kod yozish, dasturlash, xato "
-    "tuzatish yoki texnik savol bersa, aniq, ishlaydigan kod bilan javob ber, "
-    "kodni tushuntirib ber va misollar keltir."
-)
-
-BLOCKED_WORDS = [
-    "nude", "naked", "porn", "porno", "sex", "sexy",
-    "erotic", "breast", "boobs", "bikini", "lingerie",
-    "xxx", "18+", "yalangoch", "yalang'och", "jinsiy"
-]
-
-# Har bir foydalanuvchi uchun suhbat tarixi
-user_history = {}
-MAX_HISTORY = 10
-
-
-def ask_ai(chat_id, user_text):
-    history = user_history.get(chat_id, [])
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history + [
-        {"role": "user", "content": user_text}
-    ]
-
-    for model in FREE_MODELS:
-        for attempt in range(2):
-            try:
-                response = requests.post(
-                    url="https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={"model": model, "messages": messages},
-                    timeout=30
-                )
-                data = response.json()
-
-                if "error" in data:
-                    err = data["error"]
-                    logging.warning(f"OpenRouter xatosi ({model}): {err}")
-                    if err.get("code") == 429:
-                        wait = min(err.get("metadata", {}).get("retry_after_seconds", 6), 10)
-                        time.sleep(wait)
-                        continue
-                    break
-
-                reply = data["choices"][0]["message"]["content"]
-                history.append({"role": "user", "content": user_text})
-                history.append({"role": "assistant", "content": reply})
-                user_history[chat_id] = history[-MAX_HISTORY:]
-                return reply
-            except Exception as e:
-                logging.warning(f"So'rov xatosi ({model}): {e}")
-                break
-
-    return "Kechirasiz, hozir barcha bepul modellar band. Bir necha soniyadan keyin qayta urinib ko'ring 🙏"
-
-
-def ask_ai_about_image(image_bytes, caption):
-    prompt_text = caption.strip() if caption else "Bu rasmda nima ko'rsatilgan? O'zbek tilida tushuntiring."
-    b64 = base64.b64encode(image_bytes).decode("utf-8")
-    data_uri = f"data:image/jpeg;base64,{b64}"
-
-    for model in VISION_MODELS:
-        for attempt in range(2):
-            try:
-                response = requests.post(
-                    url="https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": SYSTEM_PROMPT},
-                            {"role": "user", "content": [
-                                {"type": "text", "text": prompt_text},
-                                {"type": "image_url", "image_url": {"url": data_uri}},
-                            ]},
-                        ],
-                    },
-                    timeout=45
-                )
-                data = response.json()
-
-                if "error" in data:
-                    err = data["error"]
-                    logging.warning(f"Vision xatosi ({model}): {err}")
-                    if err.get("code") == 429:
-                        wait = min(err.get("metadata", {}).get("retry_after_seconds", 6), 10)
-                        time.sleep(wait)
-                        continue
-                    break
-
-                return data["choices"][0]["message"]["content"]
-            except Exception as e:
-                logging.warning(f"Rasm so'rovida xato ({model}): {e}")
-                break
-
-    return "Kechirasiz, hozir rasmni tahlil qila olmadim. Birozdan keyin qayta urinib ko'ring 🙏"
-
-
-def generate_image(prompt: str):
-    try:
-        import urllib.parse
-        encoded = urllib.parse.quote(prompt)
-        url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true"
-        response = requests.get(url, timeout=60)
-        if response.status_code == 200 and response.headers.get("content-type", "").startswith("image"):
-            return response.content
-        return None
-    except Exception as e:
-        logging.warning(f"Rasm generatsiyasida xato: {e}")
-        return None
-
-
-def transcribe_voice(audio_bytes):
-    try:
-        response = requests.post(
-            url="https://api.groq.com/openai/v1/audio/transcriptions",
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-            files={"file": ("audio.ogg", audio_bytes, "audio/ogg")},
-            data={"model": "whisper-large-v3-turbo", "language": "uz"},
-            timeout=40
-        )
-        data = response.json()
-        if "text" in data:
-            return data["text"]
-        logging.warning(f"Whisper xatosi: {data}")
-        return None
-    except Exception as e:
-        logging.warning(f"Ovozni tanishda xato: {e}")
-        return None
-
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    track_user(update.effective_chat.id)
-    await update.message.reply_text(
-        "Salom! 👋 Men Nurly — sizning AI yordamchingizman.\n\n"
-        "Menga istalgan savolingizni yozing, rasm yoki 🎙 ovozli xabar yuboring — tushunib javob beraman.\n\n"
-        "🎨 /rasm [tasvir] — rasm chizib beraman (masalan: /rasm kosmosdagi mushuk)\n"
-        "/reset — suhbat tarixini tozalash\n"
-        "/yordam — barcha imkoniyatlarni ko'rish"
+@dp.message(BotCreation.waiting_for_token)
+async def receive_bot_token(msg: types.Message, state: FSMContext):
+    token = msg.text.strip()
+    user_id = msg.from_user.id
+    
+    # Balansdan ayirish va botni ro'yxatga olish
+    DB["users"][user_id]["balance"] -= PRICE_INITIAL
+    expires = datetime.now() + timedelta(days=DURATION_DAYS)
+    
+    DB["bots"][token] = {
+        "owner_id": user_id,
+        "type": 1,  # Defolt: 1-Kino Bot
+        "expires": expires.strftime("%Y-%m-%d %H:%M"),
+        "channels": [],
+        "buttons": []
+    }
+    
+    await state.clear()
+    await msg.answer(
+        f"✅ Bot muvaffaqiyatli yaratildi!\n"
+        f"📅 Faoliyat muddati: <b>17 kun</b> (Tugash vaqti: {expires.strftime('%Y-%m-%d')})\n"
+        f"🔄 Keyingi uzaytirish: <b>11,000 so'm</b>.",
+        parse_mode="HTML"
     )
 
+# ==========================================
+# 3. YARATILADIGAN 20 TA BOT ENGINE SHABLONI
+# ==========================================
+class BotEngine:
+    def __init__(self, token: str, bot_type: int):
+        self.bot = Bot(token=token)
+        self.dp = Dispatcher()
+        self.bot_type = bot_type
+        self.token = token
+        self.register_handlers()
 
-async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Sizning ID'ingiz: `{update.effective_chat.id}`", parse_mode="Markdown")
+    async def check_sub(self, user_id: int) -> bool:
+        channels = DB["bots"].get(self.token, {}).get("channels", [])
+        for ch in channels:
+            try:
+                member = await self.bot.get_chat_member(chat_id=ch, user_id=user_id)
+                if member.status in ["left", "kicked"]:
+                    return False
+            except Exception:
+                pass
+        return True
 
+    def register_handlers(self):
+        # 1. Kino Bot (@30224030 style)
+        if self.bot_type == 1:
+            @self.dp.message(Command("start"))
+            async def k_start(msg: types.Message):
+                await msg.answer("🎬 Kino kodi yoki nomini kiriting (Masalan: 30224030):")
 
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    if ADMIN_CHAT_ID is None or chat_id != ADMIN_CHAT_ID:
-        await update.message.reply_text("Bu buyruq faqat admin uchun 🔒")
+            @self.dp.message(F.text)
+            async def k_search(msg: types.Message):
+                if not await self.check_sub(msg.from_user.id):
+                    await msg.answer("❌ Kinoni ko'rish uchun avval majburiy kanallarga obuna bo'ling!")
+                    return
+                code = msg.text.strip()
+                if code in DB["movies"]:
+                    movie = DB["movies"][code]
+                    await msg.answer_video(video=movie["file_id"], caption=f"🎥 {movie['title']}")
+                else:
+                    await msg.answer(f"❌ {code} kodli kino topilmadi.")
+
+        # 2. Referal Bot
+        elif self.bot_type == 2:
+            @self.dp.message(Command("start"))
+            async def r_start(msg: types.Message):
+                me = await self.bot.get_me()
+                link = f"https://t.me/{me.username}?start={msg.from_user.id}"
+                await msg.answer(f"🎁 Referal havolangiz:\n{link}\n\nHar bir taklif uchun 5 almos bering!")
+
+        # 3. E-Commerce Do'kon Bot
+        elif self.bot_type == 3:
+            @self.dp.message(Command("start"))
+            async def s_start(msg: types.Message):
+                await msg.answer("🛒 Do'konimizga xush kelibsiz! Mahsulotlar katalogi yuklanmoqda...")
+
+        # 4. Anonim Chat Bot
+        elif self.bot_type == 4:
+            @self.dp.message(Command("start"))
+            async def a_start(msg: types.Message):
+                await msg.answer("💬 Tasodifiy suhbatdosh qidirilmoqda...")
+
+        # 5. AI Bot
+        elif self.bot_type == 5:
+            @self.dp.message(F.text)
+            async def ai_chat(msg: types.Message):
+                await msg.answer(f"🧠 AI Javobi: '{msg.text}' bo'yicha tahlil yakunlandi.")
+
+        # 6. Downloader Bot
+        elif self.bot_type == 6:
+            @self.dp.message(F.text.contains("http"))
+            async def dl_media(msg: types.Message):
+                await msg.answer("📥 Media yuklab olinmoqda, kuting...")
+
+        # 7-20. Qolgan botlar uchun universal handlerlar
+        else:
+            @self.dp.message(Command("start"))
+            async def gen_start(msg: types.Message):
+                await msg.answer(f"🤖 Bot №{self.bot_type} ishga tushdi! Admin panel orqali sozlashingiz mumkin.")
+
+    async def start(self):
+        await self.dp.start_polling(self.bot)
+
+# ==========================================
+# 4. ADMIN PANEL VA KINO YUKLASH TIZIMI
+# ==========================================
+@dp.callback_query(F.data == "admin_panel")
+async def admin_panel_handler(call: types.CallbackQuery):
+    user_id = call.from_user.id
+    if user_id != ADMIN_ID:
+        await call.answer("❌ Bu bo'lim faqat bosh admin uchun!", show_alert=True)
         return
-    count = get_user_count()
-    await update.message.reply_text(f"👥 Botdan jami foydalanganlar soni: {count}")
 
-
-async def yordam(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🤖 *Men nima qila olaman:*\n\n"
-        "💬 Oddiy xabar yozing — savolingizga javob beraman\n"
-        "🖼 Rasm yuboring (izoh bilan yoki izohsiz) — nima ekanini tushuntiraman\n"
-        "🎙 Ovozli xabar yuboring — eshitib, javob beraman\n"
-        "🎨 `/rasm [tasvir]` — tasvirlab bergan narsangizni chizib beraman\n"
-        "   Masalan: `/rasm qor bosgan tog' manzarasi`\n"
-        "🔄 `/reset` — suhbat tarixini tozalayman, yangidan boshlaymiz\n"
-        "❓ `/yordam` — shu ro'yxatni qayta ko'rsataman",
-        parse_mode="Markdown"
+    text = (
+        "<b>⚙️ MAKER BOT ADMIN PANELI</b>\n\n"
+        f"• Jami foydalanuvchilar: {len(DB['users'])}\n"
+        f"• Yaratilgan botlar: {len(DB['bots'])}\n"
+        f"• Bazadagi kinolar: {len(DB['movies'])}"
     )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎬 Kinoga Kod va Video Qo'shish", callback_data="add_movie")],
+        [InlineKeyboardButton(text="📢 Majburiy Obuna Qo'shish", callback_data="add_sub_channel")],
+        [InlineKeyboardButton(text="🔘 Tugma Qo'shish / O'zgartirish", callback_data="edit_buttons")]
+    ])
+    await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
+@dp.callback_query(F.data == "add_movie")
+async def add_movie_start(call: types.CallbackQuery, state: FSMContext):
+    await state.set_state(AddMovie.waiting_for_code)
+    await call.message.answer("🎬 Kinoga kod qo'ying (Masalan: 30224030):")
 
-async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    user_history.pop(chat_id, None)
-    await update.message.reply_text("Suhbat tarixi tozalandi ✅")
+@dp.message(AddMovie.waiting_for_code)
+async def add_movie_code(msg: types.Message, state: FSMContext):
+    await state.update_data(code=msg.text.strip())
+    await state.set_state(AddMovie.waiting_for_file)
+    await call_or_msg_answer(msg, "🎥 Endi ushbu kodga tegishli video faylini yuboring:")
 
+@dp.message(AddMovie.waiting_for_file, F.video)
+async def add_movie_file(msg: types.Message, state: FSMContext):
+    data = await state.get_data()
+    code = data["code"]
+    file_id = msg.video.file_id
+    caption = msg.caption or f"Kino {code}"
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    track_user(chat_id)
-    text = update.message.text
-    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-    reply = ask_ai(chat_id, text)
-    await update.message.reply_text(reply)
+    DB["movies"][code] = {"title": caption, "file_id": file_id}
+    await state.clear()
+    await msg.answer(f"✅ Kino muvaffaqiyatli saqlandi!\nKod: <b>{code}</b>", parse_mode="HTML")
 
+async def call_or_msg_answer(msg: types.Message, text: str):
+    await msg.answer(text)
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-    photo = update.message.photo[-1]
-    file = await context.bot.get_file(photo.file_id)
-    image_bytes = await file.download_as_bytearray()
-    caption = update.message.caption or ""
-    reply = ask_ai_about_image(bytes(image_bytes), caption)
-    await update.message.reply_text(reply)
-
-
-async def rasm_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text(
-            "Nima rasm chizishimni yozing.\nMasalan: /rasm qor bosgan tog' manzarasi"
-        )
-        return
-
-    prompt = " ".join(context.args)
-
-    if any(word in prompt.lower() for word in BLOCKED_WORDS):
-        await update.message.reply_text(
-            "❌ Uzr, odobsiz yoki jinsiy mazmundagi rasmlarni yaratmayman."
-        )
-        return
-
-    chat_id = update.effective_chat.id
-    await context.bot.send_chat_action(chat_id=chat_id, action="upload_photo")
-    wait_msg = await update.message.reply_text("🎨 Rasm chizilmoqda, biroz kuting...")
-
-    image_bytes = generate_image(prompt)
-    if not image_bytes:
-        await wait_msg.edit_text("Kechirasiz, rasm chizib bo'lmadi. Qayta urinib ko'ring 🙏")
-        return
-
-    await wait_msg.delete()
-    await update.message.reply_photo(photo=image_bytes, caption=f"🎨 {prompt}")
-
-
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-    voice = update.message.voice or update.message.audio
-    file = await context.bot.get_file(voice.file_id)
-    audio_bytes = await file.download_as_bytearray()
-
-    text = transcribe_voice(bytes(audio_bytes))
-    if not text:
-        await update.message.reply_text("Kechirasiz, ovozli xabarni tushunolmadim 😕 Matn bilan yozib ko'ring.")
-        return
-
-    reply = ask_ai(chat_id, text)
-    await update.message.reply_text(f"🎙 Eshitdim: _{text}_\n\n{reply}", parse_mode="Markdown")
-
-
-def main():
-    import asyncio
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    init_db()
-    app = Application.builder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("reset", reset))
-    app.add_handler(CommandHandler("yordam", yordam))
-    app.add_handler(CommandHandler("myid", myid))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CommandHandler("rasm", rasm_cmd))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    print("AI bot ishga tushdi...")
-    app.run_polling()
-
-
-# ---------------- RENDER "WEB SERVICE" UCHUN KICHIK SERVER ----------------
-def run_keepalive_server():
-    import os
-    from flask import Flask
-    web = Flask(__name__)
-
-    @web.route("/")
-    def home():
-        return "AI bot ishlayapti ✅"
-
-    port = int(os.environ.get("PORT", 10000))
-    web.run(host="0.0.0.0", port=port)
-
+# ==========================================
+# 5. SERVERDA ISHGA TUSHIRISH
+# ==========================================
+async def main():
+    print("Maker Bot Platforma muvaffaqiyatli ishga tushdi...")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    import threading
-    threading.Thread(target=run_keepalive_server, daemon=True).start()
-    main()
-           
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(main())
