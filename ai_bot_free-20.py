@@ -1,6 +1,9 @@
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta
+from aiohttp import web
+
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command, CommandObject
 from aiogram.types import (
@@ -15,7 +18,7 @@ from aiogram.fsm.state import State, StatesGroup
 # 1. PLATFORMA SOZLAMALARI VA BAZA
 # ==========================================
 MAKER_BOT_TOKEN = "8708370464:AAHh34O14Zng2kIXU4mbYaaNoaFKYaT5HRg"  # Asosiy Maker Bot Tokeni
-ADMIN_ID = 7849637859                           # Bosh Admin Telegram ID
+ADMIN_ID = 7849637859                            # Bosh Admin Telegram ID
 
 PRICE_INITIAL = 35000.0   # Bot yaratish narxi (so'm)
 PRICE_RENEWAL = 11000.0   # Uzaytirish narxi
@@ -58,7 +61,7 @@ class SubBotAdmin(StatesGroup):
 # 2. SUB-BOT ENGINE (Fonda barcha botlarni yurgizish)
 # ==========================================
 def build_pro_keyboard(token: str):
-    """3-rasmdagi 'Bepul Olov Uz' uslubidagi dinamik tugmalar"""
+    """Dinamik tugmalar"""
     custom_btns = DB["bots"].get(token, {}).get("custom_buttons", [])
     
     kb = [
@@ -89,6 +92,7 @@ async def check_sub_channels(sub_bot: Bot, token: str, user_id: int) -> bool:
 async def start_sub_bot(token: str, bot_type: int):
     try:
         sub_bot = Bot(token=token)
+        await sub_bot.delete_webhook(drop_pending_updates=True)
         sub_dp = Dispatcher(storage=MemoryStorage())
 
         # --- MIDDLEWARE / CHECK SUBSCRIBERS ---
@@ -136,7 +140,7 @@ async def start_sub_bot(token: str, bot_type: int):
         async def spin(msg: types.Message):
             await msg.answer("🎰 Spin aylantirildi! 🎉 Siz **3 ta Almaz** yutib oldingiz!", parse_mode="Markdown")
 
-        # --- SUB-BOT ADMIN PANEL (Bot egasi uchun) ---
+        # --- SUB-BOT ADMIN PANEL ---
         @sub_dp.message(Command("admin"))
         async def sub_admin_panel(msg: types.Message):
             owner_id = DB["bots"][token]["owner"]
@@ -157,7 +161,7 @@ async def start_sub_bot(token: str, bot_type: int):
         async def add_btn_name(msg: types.Message, state: FSMContext):
             await state.update_data(btn_name=msg.text.strip())
             await state.set_state(SubBotAdmin.waiting_for_btn_reply)
-            await msg.answer("💬 Usbu tugma bosilganda bot qanday javob qaytarsin?")
+            await msg.answer("💬 Ushbu tugma bosilganda bot qanday javob qaytarsin?")
 
         @sub_dp.message(SubBotAdmin.waiting_for_btn_reply)
         async def add_btn_reply(msg: types.Message, state: FSMContext):
@@ -338,7 +342,7 @@ async def dep_reject(call: types.CallbackQuery):
     await bot.send_message(chat_id=uid, text="❌ Yuborgan chekingiz rad etildi.")
 
 # ==========================================
-# 5. MAKER BOT BOSH ADMIN PANELI (Barcha Botlarni Boshqarish)
+# 5. MAKER BOT BOSH ADMIN PANELI
 # ==========================================
 @dp.callback_query(F.data == "main_admin")
 async def main_admin_menu(call: types.CallbackQuery):
@@ -366,11 +370,31 @@ async def admin_bot_list(call: types.CallbackQuery):
     await call.message.edit_text("👥 **Yaratilgan Barcha Botlar Ro'yxati:**", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
 
 # ==========================================
-# 6. ISHGA TUSHIRISH
+# 6. RENDER UCHUN WEB SERVER VA ISHGA TUSHIRISH
 # ==========================================
+async def handle_ping(request):
+    return web.Response(text="Bot is running live on Render 24/7!")
+
 async def main():
     logging.basicConfig(level=logging.INFO)
-    print("Dunyoda yagona Maker Bot ishga tushmoqda...")
+    
+    # 1. Telegram'dagi eski ziddiyatli ulanishlarni tozalash
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    # 2. Render port talabini qondirish uchun aiohttp web server ishga tushirish
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    
+    print(f" Web server port {port} da ishga tushdi!")
+    print(" Dunyoda yagona Maker Bot ishga tushmoqda...")
+    
+    # 3. Botni polling rejimida ishga tushirish
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
