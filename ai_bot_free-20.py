@@ -17,7 +17,7 @@ from aiogram.fsm.state import State, StatesGroup
 # ==========================================
 # 1. PLATFORMA SOZLAMALARI VA BAZA
 # ==========================================
-MAKER_BOT_TOKEN = "8708370464:AAHh34O14Zng2kIXU4mbYaaNoaFKYaT5HRg"  # Asosiy Maker Bot Tokeni
+MAKER_BOT_TOKEN = "8708370464:AAGaUhMNgP967568QfIEfYufFQ1R-jp70Ug"  # Asosiy Maker Bot Tokeni
 ADMIN_ID = 7849637859                            # Bosh Admin Telegram ID
 
 PRICE_INITIAL = 35000.0   # Bot yaratish narxi (so'm)
